@@ -1,0 +1,38 @@
+/* ============================================================
+   Image Cleaner - 聊天图片净化插件样式
+   所有 class 带 image-cleaner- 前缀，避免与酒馆样式冲突
+   ============================================================ */
+
+/* 悬浮控制栏里的「下载/复制」按钮：
+   复用酒馆 .right_menu_button 已有样式，这里只做微调 */
+.mes_img_controls .image-cleaner-download,
+.mes_img_controls .image-cleaner-copy {
+  /* 悬停高亮，与原生按钮一致 */
+  cursor: pointer;
+}
+
+/* 移动端（触屏）控制栏默认是收起的，保证图标可点 */
+@media (max-width: 1000px) {
+  .mes_img_controls .image-cleaner-download,
+  .mes_img_controls .image-cleaner-copy {
+    pointer-events: auto;
+  }
+}
+
+/* ============ 扩展设置面板 ============ */
+.inline-drawer.image-cleaner-settings {
+  /* 与酒馆其他 inline-drawer 一致 */
+  margin-bottom: 8px;
+}
+
+.inline-drawer.image-cleaner-settings .inline-drawer-content {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+}
+
+.inline-drawer.image-cleaner-settings select,
+.inline-drawer.image-cleaner-settings input[type="number"] {
+  width: 100%;
+}

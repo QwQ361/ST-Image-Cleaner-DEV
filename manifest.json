@@ -1,0 +1,9 @@
+{
+  "display_name": "Image Cleaner",
+  "loading_order": 1001,
+  "js": "index.js",
+  "css": "style.css",
+  "author": "ST Community",
+  "version": "1.0.0",
+  "description": "为聊天图片提供「下载净化图 / 复制净化图」按钮：通过 Canvas 重绘彻底剥离 EXIF、PNG tEXt、XMP、画师串等全部元数据，输出 WebP。"
+}
