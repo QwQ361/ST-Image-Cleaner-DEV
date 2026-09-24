@@ -32,7 +32,7 @@ function getSettings() {
   if (g.outputFormat === undefined) g.outputFormat = "webp";
   // 输出质量（0~1，webp 有效；png 忽略）
   if (g.quality === undefined) g.quality = 0.9;
-  // 点击复制时是否优先使用 WebP（应用不识别则自动回退 PNG）
+  // 保留 copyWebp 兼容旧配置（Chromium 剪贴板仅支持 PNG，复制固定输出 PNG）
   if (g.copyWebp === undefined) g.copyWebp = true;
   // 跨域/CORS 失败时是否回退下载原图
   if (g.fallbackOriginal === undefined) g.fallbackOriginal = true;
@@ -228,41 +228,17 @@ async function handleDownload(media, imgEl) {
   }
 }
 
-// 剪贴板能力缓存：null=未探测，'image/webp'|'image/png'=已确认支持的类型
-let clipboardTypeCache = null;
-
-/**
- * 探测浏览器剪贴板支持的图片类型（结果缓存，避免每次复制都探测）
- *
- * Chrome/Edge 128+ 已支持 ClipboardItem 写入 image/webp；
- * Chrome/Edge 126+ 提供 ClipboardItem.supports() 可静默预检测。
- * 旧版 Chromium / Firefox / Safari 只支持 image/png（或写入时抛 NotAllowedError）。
- * @returns {'image/webp'|'image/png'}
- */
-function getSupportedClipboardType() {
-  if (clipboardTypeCache) return clipboardTypeCache;
-  // 优先用静态探测 API（Chrome/Edge 126+），无需实际写入即可判断
-  if (window.ClipboardItem && typeof ClipboardItem.supports === "function") {
-    try {
-      if (ClipboardItem.supports("image/webp")) {
-        clipboardTypeCache = "image/webp";
-        return clipboardTypeCache;
-      }
-    } catch {
-      /* 探测 API 异常时忽略，走运行时回退 */
-    }
-  }
-  clipboardTypeCache = "image/png";
-  return clipboardTypeCache;
-}
-
 /**
  * 复制净化图到剪贴板
  *
- * 通过 ClipboardItem.supports() 预探测浏览器能力：
- * - 支持 WebP（Chrome/Edge 128+）且用户开启 WebP → 直接复制 WebP
- * - 不支持（旧版 Chromium/Firefox/Safari 只认 PNG）→ 一步到位转 PNG，零失败往返
- * - 保留运行时兜底：WebP 写入若仍抛错则转 PNG 重试一次
+ * ⚠️ 硬限制（已在 Chromium 153 实测验证）：Chromium 系浏览器（Chrome/Edge 全版本）
+ * 的 navigator.clipboard.write() 只接受 image/png 一种图片 MIME，
+ * image/webp / image/jpeg / image/gif / image/bmp / image/avif 及自定义类型
+ * 一律抛 NotAllowedError "Type ... not supported on write"；
+ * ClipboardItem.supports("image/webp") 也恒返回 false。
+ * 这是浏览器安全模型限制，前端 JS 无法绕过（网上「Chrome 128+ 支持写 WebP」为误传）。
+ * 因此复制固定输出 PNG（同样经 canvas 重绘，画师串/EXIF 等元数据已剥离）；
+ * 需要 WebP 请使用「下载净化图」按钮。
  */
 async function handleCopy(media) {
   const settings = getSettings();
@@ -281,47 +257,19 @@ async function handleCopy(media) {
       throw new Error("当前浏览器不支持剪贴板图片写入");
     }
 
-    // 决定写入类型：产物是 WebP + 用户开启 WebP 复制 + 浏览器支持 WebP → WebP；否则 PNG
-    const supportedType = getSupportedClipboardType();
-    const canUseWebp =
-      outBlob.type === "image/webp" &&
-      settings.copyWebp !== false &&
-      supportedType === "image/webp";
+    // Chromium 剪贴板仅接受 image/png：产物是 webp 则转 png（透明图在 purifyImage 中已是 png）
+    const targetBlob =
+      outBlob.type === "image/png" ? outBlob : await convertBlobToPng(outBlob);
+    const itemType = "image/png";
 
-    let targetBlob = outBlob;
-    let itemType = outBlob.type;
-    if (!canUseWebp) {
-      targetBlob =
-        outBlob.type === "image/png"
-          ? outBlob
-          : await convertBlobToPng(outBlob);
-      itemType = "image/png";
-    }
-
-    try {
-      await writeToClipboard(targetBlob, itemType);
-    } catch (err) {
-      // 兜底：supports() 探测可能误报，WebP 写入失败则转 PNG 重试并记住结果
-      if (err?.name === "NotAllowedError" && itemType === "image/webp") {
-        console.warn(
-          "[Image-Cleaner] 剪贴板 WebP 写入失败，回退 PNG 重试：",
-          err.message,
-        );
-        clipboardTypeCache = "image/png";
-        targetBlob = await convertBlobToPng(outBlob);
-        itemType = "image/png";
-        await writeToClipboard(targetBlob, itemType);
-      } else {
-        throw err;
-      }
-    }
+    await writeToClipboard(targetBlob, itemType);
 
     const notes = [];
-    if (transparent && itemType === "image/png") {
+    if (transparent) {
       notes.push("透明通道已保留(PNG)");
     }
     toastr.success(
-      `已复制净化图 (${itemType})${notes.length ? "：" + notes.join("，") : ""}`,
+      `已复制净化图 (PNG)${notes.length ? "：" + notes.join("，") : ""}｜Chromium 剪贴板仅支持 PNG，WebP 请用下载按钮`,
     );
   } catch (err) {
     console.error("[Image-Cleaner] 复制失败", err);
@@ -432,10 +380,7 @@ function injectSettingsUI() {
                         <input type="checkbox" class="${EXTENSION_PREFIX}-setting-fallback" ${settings.fallbackOriginal ? "checked" : ""} />
                         <span>跨域/失败时回退下载原图</span>
                     </label>
-                    <label class="checkbox_label">
-                        <input type="checkbox" class="${EXTENSION_PREFIX}-setting-copywebp" ${settings.copyWebp ? "checked" : ""} />
-                        <span>复制时用 WebP（Chrome/Edge 128+ 剪贴板支持 WebP；旧浏览器自动转 PNG）</span>
-                    </label>
+                    <small>复制：Chromium 剪贴板仅支持 PNG（WebP 请用「下载净化图」按钮）</small>
                     <small>输出格式与质量（webp/png、质量 0~1）</small>
                     <select class="${EXTENSION_PREFIX}-setting-format">
                         <option value="webp" ${settings.outputFormat === "webp" ? "selected" : ""}>WebP（默认，文件小，画师串必去）</option>
@@ -452,10 +397,6 @@ function injectSettingsUI() {
   // 事件绑定
   block.find(`.${EXTENSION_PREFIX}-setting-fallback`).on("change", function () {
     getSettings().fallbackOriginal = $(this).prop("checked");
-    saveSettings();
-  });
-  block.find(`.${EXTENSION_PREFIX}-setting-copywebp`).on("change", function () {
-    getSettings().copyWebp = $(this).prop("checked");
     saveSettings();
   });
   block.find(`.${EXTENSION_PREFIX}-setting-format`).on("change", function () {
