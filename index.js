@@ -228,12 +228,41 @@ async function handleDownload(media, imgEl) {
   }
 }
 
+// 剪贴板能力缓存：null=未探测，'image/webp'|'image/png'=已确认支持的类型
+let clipboardTypeCache = null;
+
+/**
+ * 探测浏览器剪贴板支持的图片类型（结果缓存，避免每次复制都探测）
+ *
+ * Chrome/Edge 128+ 已支持 ClipboardItem 写入 image/webp；
+ * Chrome/Edge 126+ 提供 ClipboardItem.supports() 可静默预检测。
+ * 旧版 Chromium / Firefox / Safari 只支持 image/png（或写入时抛 NotAllowedError）。
+ * @returns {'image/webp'|'image/png'}
+ */
+function getSupportedClipboardType() {
+  if (clipboardTypeCache) return clipboardTypeCache;
+  // 优先用静态探测 API（Chrome/Edge 126+），无需实际写入即可判断
+  if (window.ClipboardItem && typeof ClipboardItem.supports === "function") {
+    try {
+      if (ClipboardItem.supports("image/webp")) {
+        clipboardTypeCache = "image/webp";
+        return clipboardTypeCache;
+      }
+    } catch {
+      /* 探测 API 异常时忽略，走运行时回退 */
+    }
+  }
+  clipboardTypeCache = "image/png";
+  return clipboardTypeCache;
+}
+
 /**
  * 复制净化图到剪贴板
  *
- * Chromium 的 ClipboardItem 写入仅支持 image/png，
- * image/webp 等类型会抛 NotAllowedError "Type image/webp not supported on write"。
- * 因此这里采用「尝试 → 类型不支持则自动转 PNG 重试」策略，确保复制永远成功。
+ * 通过 ClipboardItem.supports() 预探测浏览器能力：
+ * - 支持 WebP（Chrome/Edge 128+）且用户开启 WebP → 直接复制 WebP
+ * - 不支持（旧版 Chromium/Firefox/Safari 只认 PNG）→ 一步到位转 PNG，零失败往返
+ * - 保留运行时兜底：WebP 写入若仍抛错则转 PNG 重试一次
  */
 async function handleCopy(media) {
   const settings = getSettings();
@@ -252,12 +281,16 @@ async function handleCopy(media) {
       throw new Error("当前浏览器不支持剪贴板图片写入");
     }
 
-    // 剪贴板兼容性优先：绝大多数浏览器（Chromium 系）只支持 image/png 写入。
-    // 只有用户开启「复制时优先 WebP」且净化产物本身就是 WebP 时才直接尝试 WebP，
-    // 否则一步到位用 PNG，避免每次复制都经历一次「不支持→回退」往返。
+    // 决定写入类型：产物是 WebP + 用户开启 WebP 复制 + 浏览器支持 WebP → WebP；否则 PNG
+    const supportedType = getSupportedClipboardType();
+    const canUseWebp =
+      outBlob.type === "image/webp" &&
+      settings.copyWebp !== false &&
+      supportedType === "image/webp";
+
     let targetBlob = outBlob;
     let itemType = outBlob.type;
-    if (settings.copyWebp === false || outBlob.type !== "image/webp") {
+    if (!canUseWebp) {
       targetBlob =
         outBlob.type === "image/png"
           ? outBlob
@@ -268,15 +301,13 @@ async function handleCopy(media) {
     try {
       await writeToClipboard(targetBlob, itemType);
     } catch (err) {
-      // 仅当类型不支持时回退 PNG 重试；其他错误（如用户拒绝授权）直接抛出
-      if (
-        err?.name === "NotAllowedError" &&
-        String(err?.message).includes("not supported") &&
-        itemType !== "image/png"
-      ) {
+      // 兜底：supports() 探测可能误报，WebP 写入失败则转 PNG 重试并记住结果
+      if (err?.name === "NotAllowedError" && itemType === "image/webp") {
         console.warn(
-          "[Image-Cleaner] 剪贴板不支持 " + itemType + "，回退 PNG 重试",
+          "[Image-Cleaner] 剪贴板 WebP 写入失败，回退 PNG 重试：",
+          err.message,
         );
+        clipboardTypeCache = "image/png";
         targetBlob = await convertBlobToPng(outBlob);
         itemType = "image/png";
         await writeToClipboard(targetBlob, itemType);
@@ -403,7 +434,7 @@ function injectSettingsUI() {
                     </label>
                     <label class="checkbox_label">
                         <input type="checkbox" class="${EXTENSION_PREFIX}-setting-copywebp" ${settings.copyWebp ? "checked" : ""} />
-                        <span>复制时尝试 WebP（多数浏览器剪贴板仅支持 PNG，失败自动回退）</span>
+                        <span>复制时用 WebP（Chrome/Edge 128+ 剪贴板支持 WebP；旧浏览器自动转 PNG）</span>
                     </label>
                     <small>输出格式与质量（webp/png、质量 0~1）</small>
                     <select class="${EXTENSION_PREFIX}-setting-format">
