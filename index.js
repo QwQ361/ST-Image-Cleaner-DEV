@@ -101,12 +101,16 @@ function hasTransparency(img) {
     // 采样像素：先检查角落，全图扫描开销大时用步进采样
     const w = canvas.width;
     const h = canvas.height;
+    // ⚠️ 阈值用 250 而非 255：PNG 抗锯齿边缘的 alpha 常为 250~254，
+    // 误判透明会把本可输出 WebP 的图强制转成 PNG（已在 Chromium 实测确认根因）。
+    // 真透明像素 alpha 会显著低于 250；alpha∈[250,255) 肉眼不可辨。
+    const ALPHA_THRESHOLD = 250;
     const sample = (x, y) => g.getImageData(x, y, 1, 1).data[3];
     if (
-      sample(0, 0) < 255 ||
-      sample(w - 1, 0) < 255 ||
-      sample(0, h - 1) < 255 ||
-      sample(w - 1, h - 1) < 255
+      sample(0, 0) < ALPHA_THRESHOLD ||
+      sample(w - 1, 0) < ALPHA_THRESHOLD ||
+      sample(0, h - 1) < ALPHA_THRESHOLD ||
+      sample(w - 1, h - 1) < ALPHA_THRESHOLD
     ) {
       return true;
     }
@@ -114,7 +118,7 @@ function hasTransparency(img) {
     const step = Math.max(1, Math.floor(Math.min(w, h) / 16));
     for (let y = 0; y < h; y += step) {
       for (let x = 0; x < w; x += step) {
-        if (g.getImageData(x, y, 1, 1).data[3] < 255) {
+        if (g.getImageData(x, y, 1, 1).data[3] < ALPHA_THRESHOLD) {
           return true;
         }
       }
