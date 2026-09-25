@@ -357,9 +357,22 @@ function closeContextMenu() {
 }
 
 /**
+ * 弹出自定义右键菜单的挂载容器：
+ * 图片在 <dialog>（showModal 打开的 top layer 弹窗，如大图预览）内时，
+ * 必须挂进 dialog 内部才能盖过弹窗；否则挂 body。
+ * @param {HTMLElement} imgEl
+ * @returns {HTMLElement}
+ */
+function getContextMenuHost(imgEl) {
+  const dialog = imgEl && imgEl.closest ? imgEl.closest("dialog") : null;
+  if (dialog && dialog.open) return dialog;
+  return document.body;
+}
+
+/**
  * 在鼠标位置弹出自定义右键菜单
  * @param {MouseEvent} e
- * @param {HTMLElement} imgEl 被右键的 .mes_img 元素
+ * @param {HTMLElement} imgEl 被右键的图片元素
  */
 function showContextMenu(e, imgEl) {
   closeContextMenu();
@@ -377,8 +390,8 @@ function showContextMenu(e, imgEl) {
     </div>
   `);
 
-  // 先挂到 body 计算尺寸，再定位（避免超出视口被裁）
-  $("body").append(menu);
+  // 先挂到容器计算尺寸，再定位（避免超出视口被裁）
+  $(getContextMenuHost(imgEl)).append(menu);
   const menuWidth = menu.outerWidth();
   const menuHeight = menu.outerHeight();
   const vw = window.innerWidth;
@@ -494,14 +507,17 @@ async function copyRawImageFromSrc(imgEl) {
   }
 }
 
-// 拦截图片右键 → 弹自定义菜单（覆盖聊天区内所有 <img>：.mes_img 消息图、
-// 文生图插件渲染的图、头像等；非 .mes_img 自动走 src 兜底净化）
-// 过滤无实义的占位图（1px 透明 gif / 空 src），避免误伤装饰性图片
-$(document).on("contextmenu", "#chat img", function (e) {
+// 拦截图片右键 → 弹自定义菜单（覆盖酒馆内所有实义 <img>：聊天区 .mes_img 消息图、
+// 文生图插件渲染的图、头像、大图预览弹窗 .img_enlarged、表情图等；
+// 非 .mes_img 自动走 src 兜底净化）
+// 过滤无实义的占位图/装饰图，避免误伤：
+//   空 src / data:, / 1px 透明 gif（懒加载占位）、No-Image 占位符、头像裁剪框底图
+$(document).on("contextmenu", "img", function (e) {
   const src = $(this).attr("src") || "";
-  if (!src || src === "data:," || /^data:image\/gif;base64,R0lGODlhAQAB/.test(src)) {
-    return;
-  }
+  if (!src || src === "data:,") return;
+  if (/^data:image\/gif;base64,R0lGODlhAQAB/.test(src)) return; // 1px 透明 gif（懒加载占位）
+  if (/No-Image-Placeholder\.svg/.test(src)) return; // 无图占位符
+  if ($(this).hasClass("popup-crop-image")) return; // 头像裁剪框底图（src 无实义）
   e.preventDefault();
   e.stopPropagation();
   showContextMenu(e, this);
