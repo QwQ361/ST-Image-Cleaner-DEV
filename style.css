@@ -73,3 +73,18 @@
   text-align: center;
   opacity: 0.8;
 }
+
+/* 菜单分组分隔线（原图 / 净化图） */
+.image-cleaner-context-menu > div.image-cleaner-ctx-divider {
+  height: 1px;
+  padding: 0;
+  margin: 5px 4px;
+  background: var(--SmartThemeBorderColor, rgba(128, 128, 128, 0.4));
+  border-radius: 0;
+  cursor: default;
+  pointer-events: none;
+}
+
+.image-cleaner-context-menu > div.image-cleaner-ctx-divider:hover {
+  background: var(--SmartThemeBorderColor, rgba(128, 128, 128, 0.4));
+}

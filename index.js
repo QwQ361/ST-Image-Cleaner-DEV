@@ -338,12 +338,15 @@ $(document).on("click", `.${EXTENSION_PREFIX}-copy`, function () {
 // ========== 自定义右键菜单 ==========
 // 背景：浏览器原生右键「将图片另存为」保存的是原始文件（如 PNG 含画师串/EXIF），
 // 且该动作由浏览器接管、JS 无法拦截或改格式。这里拦截 contextmenu 事件，
-// 弹出插件自己的菜单，提供「下载净化图(WebP)/复制净化图(PNG)」。
+// 弹出插件自己的菜单，提供「下载/复制 原图」与「下载/复制 净化图」。
 // 事件委托到 document：无论图片由哪个插件（酒馆核心/文生图/第三方）渲染，
-// 只要 DOM 里是 .mes_img 就能命中。
+// 只要 DOM 里是实义 <img> 就能命中。
 const MENU_CLASS = `${EXTENSION_PREFIX}-context-menu`;
+const MENU_ITEM_RAW_DOWNLOAD = `${EXTENSION_PREFIX}-ctx-raw-download`;
+const MENU_ITEM_RAW_COPY = `${EXTENSION_PREFIX}-ctx-raw-copy`;
 const MENU_ITEM_DOWNLOAD = `${EXTENSION_PREFIX}-ctx-download`;
 const MENU_ITEM_COPY = `${EXTENSION_PREFIX}-ctx-copy`;
+const MENU_ITEM_DIVIDER = `${EXTENSION_PREFIX}-ctx-divider`;
 
 /** 当前右键菜单对应的图片元素（供菜单项点击时取用） */
 let contextMenuImg = null;
@@ -379,12 +382,21 @@ function showContextMenu(e, imgEl) {
 
   const menu = $(`
     <div class="${MENU_CLASS}">
-      <div class="${MENU_ITEM_DOWNLOAD}">
+      <div class="${MENU_ITEM_RAW_DOWNLOAD}">
         <i class="fa-solid fa-download"></i>
+        <span>下载原图</span>
+      </div>
+      <div class="${MENU_ITEM_RAW_COPY}">
+        <i class="fa-solid fa-copy"></i>
+        <span>复制原图</span>
+      </div>
+      <div class="${MENU_ITEM_DIVIDER}"></div>
+      <div class="${MENU_ITEM_DOWNLOAD}">
+        <i class="fa-solid fa-wand-magic-sparkles"></i>
         <span>下载净化图 (WebP)</span>
       </div>
       <div class="${MENU_ITEM_COPY}">
-        <i class="fa-solid fa-copy"></i>
+        <i class="fa-solid fa-clone"></i>
         <span>复制净化图 (PNG)</span>
       </div>
     </div>
@@ -404,7 +416,25 @@ function showContextMenu(e, imgEl) {
 
   contextMenuImg = imgEl;
 
-  // 点击菜单项：下载 / 复制
+  // 点击菜单项：下载/复制 原图 与 净化图
+  menu.find(`.${MENU_ITEM_RAW_DOWNLOAD}`).on("click", () => {
+    const mediaInfo = resolveMediaFromImg(contextMenuImg);
+    if (mediaInfo) {
+      downloadOriginal(mediaInfo);
+    } else {
+      downloadOriginalFromSrc(contextMenuImg);
+    }
+    closeContextMenu();
+  });
+  menu.find(`.${MENU_ITEM_RAW_COPY}`).on("click", () => {
+    const mediaInfo = resolveMediaFromImg(contextMenuImg);
+    if (mediaInfo) {
+      copyOriginal(mediaInfo);
+    } else {
+      copyOriginalFromSrc(contextMenuImg);
+    }
+    closeContextMenu();
+  });
   menu.find(`.${MENU_ITEM_DOWNLOAD}`).on("click", () => {
     const mediaInfo = resolveMediaFromImg(contextMenuImg);
     if (mediaInfo) {
@@ -436,6 +466,94 @@ function resolveMediaFromImg(imgEl) {
     // fallthrough
   }
   return null;
+}
+
+/**
+ * 下载原图（media 路径）：保留原文件名，不净化
+ */
+async function downloadOriginal(media) {
+  const fileName = media.title || media.name || "";
+  try {
+    const res = await fetch(media.url);
+    if (!res.ok) throw new Error(`下载失败 (HTTP ${res.status})`);
+    const blob = await res.blob();
+    download(blob, fileName || `image_${Date.now()}`, blob.type);
+    toastr.success(`已下载原图 (${blob.type})`);
+  } catch (err) {
+    console.error("[Image-Cleaner] 下载原图失败", err);
+    toastr.error(`下载原图失败：${err.message}`);
+  }
+}
+
+/**
+ * 复制原图到剪贴板（media 路径）：不净化。
+ * ⚠️ Chromium 剪贴板仅接受 image/png，非 PNG 需转 PNG 才能写入。
+ */
+async function copyOriginal(media) {
+  try {
+    const res = await fetch(media.url);
+    if (!res.ok) throw new Error(`获取图片失败 (HTTP ${res.status})`);
+    const blob = await res.blob();
+    if (!navigator.clipboard || !window.ClipboardItem) {
+      throw new Error("当前浏览器不支持剪贴板图片写入");
+    }
+    const targetBlob =
+      blob.type === "image/png" ? blob : await convertBlobToPng(blob);
+    await writeToClipboard(targetBlob, "image/png");
+    toastr.success(
+      `已复制原图 (PNG)｜Chromium 剪贴板仅支持 PNG，原格式 WebP 请用下载`,
+    );
+  } catch (err) {
+    console.error("[Image-Cleaner] 复制原图失败", err);
+    toastr.error(`复制原图失败：${err.message}`);
+  }
+}
+
+/**
+ * 兜底：直接从 <img> 的 src 下载原图（拿不到 chat.extra.media 时）
+ */
+async function downloadOriginalFromSrc(imgEl) {
+  const src = $(imgEl).attr("src");
+  if (!src) {
+    toastr.warning("无法获取图片地址");
+    return;
+  }
+  try {
+    const res = await fetch(src);
+    if (!res.ok) throw new Error(`获取图片失败 (HTTP ${res.status})`);
+    const blob = await res.blob();
+    download(blob, `image_${Date.now()}`, blob.type);
+    toastr.success(`已下载原图 (${blob.type})`);
+  } catch (err) {
+    console.error("[Image-Cleaner] 下载原图失败", err);
+    toastr.error(`下载原图失败：${err.message}`);
+  }
+}
+
+/**
+ * 兜底：直接从 <img> 的 src 复制原图（拿不到 chat.extra.media 时）
+ */
+async function copyOriginalFromSrc(imgEl) {
+  const src = $(imgEl).attr("src");
+  if (!src) {
+    toastr.warning("无法获取图片地址");
+    return;
+  }
+  try {
+    const res = await fetch(src);
+    if (!res.ok) throw new Error(`获取图片失败 (HTTP ${res.status})`);
+    const blob = await res.blob();
+    if (!navigator.clipboard || !window.ClipboardItem) {
+      throw new Error("当前浏览器不支持剪贴板图片写入");
+    }
+    const targetBlob =
+      blob.type === "image/png" ? blob : await convertBlobToPng(blob);
+    await writeToClipboard(targetBlob, "image/png");
+    toastr.success(`已复制原图 (PNG)`);
+  } catch (err) {
+    console.error("[Image-Cleaner] 复制原图失败", err);
+    toastr.error(`复制原图失败：${err.message}`);
+  }
 }
 
 /**
