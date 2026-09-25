@@ -23,7 +23,7 @@
 
 1. 将整个 `AAAA-ST-Image-Cleaner` 目录复制到酒馆的：
    ```
-   public/scripts/extensions/third-party/AAAA-ST-Image-Cleaner/
+   public/scripts/extensions/third-party/ST-Image-Cleaner/
    ```
 2. **重启酒馆**（或刷新浏览器页面）让插件加载。
 3. 在扩展管理面板中确认插件已激活（显示为「Image Cleaner」）。
