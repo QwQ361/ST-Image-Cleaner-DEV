@@ -35,6 +35,19 @@
 .inline-drawer.image-cleaner-settings select,
 .inline-drawer.image-cleaner-settings input[type="number"] {
   width: 100%;
+  /* 修复深色主题下输入框白底白字看不清：
+     显式指定文字颜色与背景，覆盖酒馆主题对 input 的默认样式 */
+  color: var(--SmartThemeBodyColor, #e0e0e0);
+  background-color: var(--SmartThemeBlurTintColor, #2a2a3a);
+  border: 1px solid var(--SmartThemeBorderColor, rgba(128, 128, 128, 0.5));
+  border-radius: 6px;
+  padding: 4px 8px;
+}
+
+/* 输入框内数字文本同样需要可见色（部分主题会继承白色文字） */
+.inline-drawer.image-cleaner-settings input[type="number"]::placeholder {
+  color: var(--SmartThemeBodyColor, #e0e0e0);
+  opacity: 0.6;
 }
 
 /* ============ 自定义右键菜单 ============

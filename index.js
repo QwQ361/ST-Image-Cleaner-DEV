@@ -28,6 +28,8 @@ function getSettings() {
   if (!s[EXTENSION_NAME]) s[EXTENSION_NAME] = {};
 
   const g = s[EXTENSION_NAME];
+  // 插件总开关（取消勾选后右键菜单与按钮全部不生效）
+  if (g.enabled === undefined) g.enabled = true;
   // 输出格式：webp（默认）| png（保留透明，但画师串仍被剥离）
   if (g.outputFormat === undefined) g.outputFormat = "webp";
   // 输出质量（0~1，webp 有效；png 忽略）
@@ -38,6 +40,13 @@ function getSettings() {
   if (g.fallbackOriginal === undefined) g.fallbackOriginal = true;
 
   return g;
+}
+
+/**
+ * 插件是否启用（总开关）。关闭时右键菜单与图片控制栏按钮全部不生效。
+ */
+function isEnabled() {
+  return !!getSettings().enabled;
 }
 
 /**
@@ -315,6 +324,7 @@ async function convertBlobToPng(blob) {
  * 事件委托：点击「下载净化图」
  */
 $(document).on("click", `.${EXTENSION_PREFIX}-download`, function () {
+  if (!isEnabled()) return;
   const info = getMediaInfo(this);
   if (!info.media) {
     toastr.warning("未找到图片信息");
@@ -327,6 +337,7 @@ $(document).on("click", `.${EXTENSION_PREFIX}-download`, function () {
  * 事件委托：点击「复制净化图」
  */
 $(document).on("click", `.${EXTENSION_PREFIX}-copy`, function () {
+  if (!isEnabled()) return;
   const info = getMediaInfo(this);
   if (!info.media) {
     toastr.warning("未找到图片信息");
@@ -393,11 +404,11 @@ function showContextMenu(e, imgEl) {
       <div class="${MENU_ITEM_DIVIDER}"></div>
       <div class="${MENU_ITEM_DOWNLOAD}">
         <i class="fa-solid fa-wand-magic-sparkles"></i>
-        <span>下载净化图 (WebP)</span>
+        <span>下载净化图</span>
       </div>
       <div class="${MENU_ITEM_COPY}">
         <i class="fa-solid fa-clone"></i>
-        <span>复制净化图 (PNG)</span>
+        <span>复制净化图</span>
       </div>
     </div>
   `);
@@ -631,6 +642,7 @@ async function copyRawImageFromSrc(imgEl) {
 // 过滤无实义的占位图/装饰图，避免误伤：
 //   空 src / data:, / 1px 透明 gif（懒加载占位）、No-Image 占位符、头像裁剪框底图
 $(document).on("contextmenu", "img", function (e) {
+  if (!isEnabled()) return; // 插件关闭时不拦截右键，恢复浏览器原生行为
   const src = $(this).attr("src") || "";
   if (!src || src === "data:,") return;
   if (/^data:image\/gif;base64,R0lGODlhAQAB/.test(src)) return; // 1px 透明 gif（懒加载占位）
@@ -681,6 +693,21 @@ function injectButtons() {
     .addClass(`${EXTENSION_PREFIX}-copy`)
     .attr("title", "复制净化图（剥离画师串/EXIF 等元数据）")
     .appendTo(controls);
+
+  // 应用启用状态（关闭时隐藏按钮）
+  syncButtonsState();
+}
+
+/**
+ * 按插件启用开关同步图片控制栏按钮的显隐
+ * （模板会在每次消息渲染时克隆，克隆出来的按钮状态与模板一致，故只需同步模板）
+ */
+function syncButtonsState() {
+  const template = $("#message_image_template");
+  if (template.length === 0) return;
+  const show = isEnabled();
+  template.find(`.${EXTENSION_PREFIX}-download, .${EXTENSION_PREFIX}-copy`)
+    .toggle(show);
 }
 
 /**
@@ -699,8 +726,12 @@ function injectSettingsUI() {
                 <b>Image Cleaner 净化设置</b>
                 <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
             </div>
-            <div class="inline-drawer-content">
+            <div class="inline-drawer-content" style="display: none;">
                 <div class="flex-container flexGap5">
+                    <label class="checkbox_label">
+                        <input type="checkbox" class="${EXTENSION_PREFIX}-setting-enabled" ${settings.enabled ? "checked" : ""} />
+                        <span>启用插件（关闭后右键菜单与按钮不生效）</span>
+                    </label>
                     <label class="checkbox_label">
                         <input type="checkbox" class="${EXTENSION_PREFIX}-setting-fallback" ${settings.fallbackOriginal ? "checked" : ""} />
                         <span>跨域/失败时回退下载原图</span>
@@ -720,6 +751,11 @@ function injectSettingsUI() {
   settingsContainer.append(block);
 
   // 事件绑定
+  block.find(`.${EXTENSION_PREFIX}-setting-enabled`).on("change", function () {
+    getSettings().enabled = $(this).prop("checked");
+    saveSettings();
+    syncButtonsState();
+  });
   block.find(`.${EXTENSION_PREFIX}-setting-fallback`).on("change", function () {
     getSettings().fallbackOriginal = $(this).prop("checked");
     saveSettings();
