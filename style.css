@@ -36,3 +36,40 @@
 .inline-drawer.image-cleaner-settings input[type="number"] {
   width: 100%;
 }
+
+/* ============ 自定义右键菜单 ============
+   拦截图片右键弹出的净化菜单，覆盖所有 .mes_img
+   （含文生图插件等动态渲染的图片，不依赖按钮注入） */
+.image-cleaner-context-menu {
+  position: fixed;
+  z-index: 100000; /* 高于酒馆所有浮层 */
+  min-width: 180px;
+  padding: 6px;
+  background: var(--bg-main, #1e1e2e);
+  border: 1px solid var(--SmartThemeBorderColor, rgba(128, 128, 128, 0.4));
+  border-radius: 10px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  font-size: 14px;
+  user-select: none;
+}
+
+.image-cleaner-context-menu > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--SmartThemeBodyColor, #e0e0e0);
+  transition: background 0.12s ease;
+}
+
+.image-cleaner-context-menu > div:hover {
+  background: var(--SmartThemeBlurTintColor, rgba(128, 128, 128, 0.2));
+}
+
+.image-cleaner-context-menu > div i {
+  width: 16px;
+  text-align: center;
+  opacity: 0.8;
+}

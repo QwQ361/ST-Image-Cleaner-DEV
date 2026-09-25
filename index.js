@@ -335,6 +335,187 @@ $(document).on("click", `.${EXTENSION_PREFIX}-copy`, function () {
   handleCopy(info.media);
 });
 
+// ========== 自定义右键菜单 ==========
+// 背景：浏览器原生右键「将图片另存为」保存的是原始文件（如 PNG 含画师串/EXIF），
+// 且该动作由浏览器接管、JS 无法拦截或改格式。这里拦截 contextmenu 事件，
+// 弹出插件自己的菜单，提供「下载净化图(WebP)/复制净化图(PNG)」。
+// 事件委托到 document：无论图片由哪个插件（酒馆核心/文生图/第三方）渲染，
+// 只要 DOM 里是 .mes_img 就能命中。
+const MENU_CLASS = `${EXTENSION_PREFIX}-context-menu`;
+const MENU_ITEM_DOWNLOAD = `${EXTENSION_PREFIX}-ctx-download`;
+const MENU_ITEM_COPY = `${EXTENSION_PREFIX}-ctx-copy`;
+
+/** 当前右键菜单对应的图片元素（供菜单项点击时取用） */
+let contextMenuImg = null;
+
+/**
+ * 关闭自定义右键菜单
+ */
+function closeContextMenu() {
+  $(`.${MENU_CLASS}`).remove();
+  contextMenuImg = null;
+}
+
+/**
+ * 在鼠标位置弹出自定义右键菜单
+ * @param {MouseEvent} e
+ * @param {HTMLElement} imgEl 被右键的 .mes_img 元素
+ */
+function showContextMenu(e, imgEl) {
+  closeContextMenu();
+
+  const menu = $(`
+    <div class="${MENU_CLASS}">
+      <div class="${MENU_ITEM_DOWNLOAD}">
+        <i class="fa-solid fa-download"></i>
+        <span>下载净化图 (WebP)</span>
+      </div>
+      <div class="${MENU_ITEM_COPY}">
+        <i class="fa-solid fa-copy"></i>
+        <span>复制净化图 (PNG)</span>
+      </div>
+    </div>
+  `);
+
+  // 先挂到 body 计算尺寸，再定位（避免超出视口被裁）
+  $("body").append(menu);
+  const menuWidth = menu.outerWidth();
+  const menuHeight = menu.outerHeight();
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  let left = e.clientX;
+  let top = e.clientY;
+  if (left + menuWidth > vw) left = Math.max(0, vw - menuWidth - 8);
+  if (top + menuHeight > vh) top = Math.max(0, vh - menuHeight - 8);
+  menu.css({ left: `${left}px`, top: `${top}px` });
+
+  contextMenuImg = imgEl;
+
+  // 点击菜单项：下载 / 复制
+  menu.find(`.${MENU_ITEM_DOWNLOAD}`).on("click", () => {
+    const mediaInfo = resolveMediaFromImg(contextMenuImg);
+    if (mediaInfo) {
+      handleDownload(mediaInfo, contextMenuImg);
+    } else {
+      downloadRawImageFromSrc(contextMenuImg);
+    }
+    closeContextMenu();
+  });
+  menu.find(`.${MENU_ITEM_COPY}`).on("click", () => {
+    const mediaInfo = resolveMediaFromImg(contextMenuImg);
+    if (mediaInfo) {
+      handleCopy(mediaInfo);
+    } else {
+      copyRawImageFromSrc(contextMenuImg);
+    }
+    closeContextMenu();
+  });
+}
+
+/**
+ * 从 .mes_img 解析 media 信息；失败返回 null
+ */
+function resolveMediaFromImg(imgEl) {
+  try {
+    const info = getMediaInfo(imgEl);
+    if (info.media) return info.media;
+  } catch {
+    // fallthrough
+  }
+  return null;
+}
+
+/**
+ * 兜底：直接从 <img> 的 src 下载净化图（拿不到 chat.extra.media 时）
+ */
+async function downloadRawImageFromSrc(imgEl) {
+  const src = $(imgEl).attr("src");
+  if (!src) {
+    toastr.warning("无法获取图片地址");
+    return;
+  }
+  try {
+    const res = await fetch(src);
+    if (!res.ok) throw new Error(`获取图片失败 (HTTP ${res.status})`);
+    const blob = await res.blob();
+    const settings = getSettings();
+    const {
+      blob: outBlob,
+      transparent,
+      animated,
+    } = await purifyImage(blob, settings.outputFormat, settings.quality);
+    const ext = outBlob.type === "image/png" ? "png" : "webp";
+    download(outBlob, makeCleanFileName("", ext), outBlob.type);
+    const notes = [];
+    if (animated) notes.push("动图已取首帧");
+    if (transparent) notes.push("透明通道已保留(PNG)");
+    toastr.success(
+      `已下载净化图 (${outBlob.type})${notes.length ? "：" + notes.join("，") : ""}`,
+    );
+  } catch (err) {
+    console.error("[Image-Cleaner] 右键下载失败", err);
+    toastr.error(`下载失败：${err.message}`);
+  }
+}
+
+/**
+ * 兜底：直接从 <img> 的 src 复制净化图（拿不到 chat.extra.media 时）
+ */
+async function copyRawImageFromSrc(imgEl) {
+  const src = $(imgEl).attr("src");
+  if (!src) {
+    toastr.warning("无法获取图片地址");
+    return;
+  }
+  try {
+    const res = await fetch(src);
+    if (!res.ok) throw new Error(`获取图片失败 (HTTP ${res.status})`);
+    const blob = await res.blob();
+    const settings = getSettings();
+    const { blob: outBlob, transparent } = await purifyImage(
+      blob,
+      settings.outputFormat,
+      settings.quality,
+    );
+    if (!navigator.clipboard || !window.ClipboardItem) {
+      throw new Error("当前浏览器不支持剪贴板图片写入");
+    }
+    const targetBlob =
+      outBlob.type === "image/png" ? outBlob : await convertBlobToPng(outBlob);
+    await writeToClipboard(targetBlob, "image/png");
+    const notes = [];
+    if (transparent) notes.push("透明通道已保留(PNG)");
+    toastr.success(
+      `已复制净化图 (PNG)${notes.length ? "：" + notes.join("，") : ""}｜Chromium 剪贴板仅支持 PNG，WebP 请用下载`,
+    );
+  } catch (err) {
+    console.error("[Image-Cleaner] 右键复制失败", err);
+    toastr.error(`复制失败：${err.message}`);
+  }
+}
+
+// 拦截图片右键 → 弹自定义菜单（覆盖所有 .mes_img，含文生图插件渲染的图片）
+$(document).on("contextmenu", ".mes_img", function (e) {
+  e.preventDefault();
+  e.stopPropagation();
+  showContextMenu(e, this);
+});
+
+// 点击空白处关闭菜单
+$(document).on("click", function (e) {
+  if (!$(e.target).closest(`.${MENU_CLASS}`).length) {
+    closeContextMenu();
+  }
+});
+
+// 滚动/窗口尺寸变化时关闭（菜单是固定定位，滚动后会错位）
+$(document).on("scroll", closeContextMenu);
+$(window).on("resize", closeContextMenu);
+// Escape 关闭
+$(document).on("keydown", function (e) {
+  if (e.key === "Escape") closeContextMenu();
+});
+
 /**
  * 向图片悬浮控制栏注入「下载」「复制」按钮（幂等）
  */
