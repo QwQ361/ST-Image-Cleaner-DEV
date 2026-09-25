@@ -653,12 +653,23 @@ $(document).on("contextmenu", "img", function (e) {
   showContextMenu(e, this);
 });
 
-// 点击空白处关闭菜单
-$(document).on("click", function (e) {
-  if (!$(e.target).closest(`.${MENU_CLASS}`).length) {
-    closeContextMenu();
-  }
-});
+// 点击/触控菜单以外区域关闭菜单
+// ⚠️ 必须用 capture 阶段监听：酒馆在中间元素（如 .mes 消息、大图预览弹窗）
+// 上绑定的 click 处理会 stopPropagation，冒泡阶段的 document 监听收不到事件，
+// 导致「点菜单外不消失」。capture 阶段 document 最先收到，不受 stopPropagation 影响。
+function onOutsidePress(e) {
+  if (!document.querySelector(`.${MENU_CLASS}`)) return; // 无菜单时忽略
+  if (e.target?.closest?.(`.${MENU_CLASS}`)) return; // 点在菜单内，不关闭
+  closeContextMenu();
+}
+document.addEventListener("mousedown", onOutsidePress, true);
+document.addEventListener("touchstart", onOutsidePress, true);
+// 右键菜单外区域也关闭（避免旧菜单残留）
+document.addEventListener("contextmenu", function (e) {
+  if (!document.querySelector(`.${MENU_CLASS}`)) return;
+  if (e.target?.closest?.(`.${MENU_CLASS}`)) return;
+  closeContextMenu();
+}, true);
 
 // 滚动/窗口尺寸变化时关闭（菜单是固定定位，滚动后会错位）
 $(document).on("scroll", closeContextMenu);
