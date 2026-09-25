@@ -494,8 +494,14 @@ async function copyRawImageFromSrc(imgEl) {
   }
 }
 
-// 拦截图片右键 → 弹自定义菜单（覆盖所有 .mes_img，含文生图插件渲染的图片）
-$(document).on("contextmenu", ".mes_img", function (e) {
+// 拦截图片右键 → 弹自定义菜单（覆盖聊天区内所有 <img>：.mes_img 消息图、
+// 文生图插件渲染的图、头像等；非 .mes_img 自动走 src 兜底净化）
+// 过滤无实义的占位图（1px 透明 gif / 空 src），避免误伤装饰性图片
+$(document).on("contextmenu", "#chat img", function (e) {
+  const src = $(this).attr("src") || "";
+  if (!src || src === "data:," || /^data:image\/gif;base64,R0lGODlhAQAB/.test(src)) {
+    return;
+  }
   e.preventDefault();
   e.stopPropagation();
   showContextMenu(e, this);
