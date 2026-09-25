@@ -747,7 +747,7 @@ function injectSettingsUI() {
                         <input type="checkbox" class="${EXTENSION_PREFIX}-setting-fallback" ${settings.fallbackOriginal ? "checked" : ""} />
                         <span>跨域/失败时回退下载原图</span>
                     </label>
-                    <small>复制：Chromium 剪贴板仅支持 PNG（WebP 请用「下载净化图」按钮）</small>
+                    <small>PNG 与 WebP 输出均可去除画师串等元数据（Canvas 重绘剥离）</small>
                     <small>输出格式与质量（webp/png、质量 0~1）</small>
                     <select class="${EXTENSION_PREFIX}-setting-format">
                         <option value="webp" ${settings.outputFormat === "webp" ? "selected" : ""}>WebP（默认，文件小，画师串必去）</option>
