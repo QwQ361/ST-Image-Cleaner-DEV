@@ -1,9 +1,9 @@
 {
-  "display_name": "Image Cleaner",
+  "display_name": "酒馆图片净化器-开发用",
   "loading_order": 1001,
   "js": "index.js",
   "css": "style.css",
-  "author": "ST Community",
+  "author": "QwQ&AI",
   "version": "1.0.0",
   "description": "为聊天图片提供「下载净化图 / 复制净化图」按钮：通过 Canvas 重绘彻底剥离 EXIF、PNG tEXt、XMP、画师串等全部元数据，输出 WebP。"
 }

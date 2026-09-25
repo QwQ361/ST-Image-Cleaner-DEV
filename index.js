@@ -734,7 +734,7 @@ function injectSettingsUI() {
   const block = $(`
         <div class="inline-drawer ${EXTENSION_PREFIX}-settings">
             <div class="inline-drawer-toggle inline-drawer-header">
-                <b>Image Cleaner 净化设置</b>
+                <b>酒馆图片净化器设置</b>
                 <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
             </div>
             <div class="inline-drawer-content" style="display: none;">
