@@ -57,59 +57,6 @@ function saveSettings() {
 }
 
 /**
- * 将图片地址归一化为「当前访问酒馆主机」下的可访问 URL。
- *
- * 背景：聊天记录中的媒体地址 media.url 既可能是相对路径（如 /user/images/x.png），
- * 也可能是历史保存的绝对 URL。局域网跨设备访问酒馆时：
- *   1. 相对路径需基于当前 origin 解析（fetch 会基于当前页面 origin 解析，属正常情况）；
- *   2. 若历史 URL 的 host 是回环地址（localhost / 127.0.0.1 / ::1 / 0.0.0.0），
- *      远端设备会请求到「设备自身」而非酒馆主机，导致原图、净化图都无法下载与复制。
- * 这里把回环 host 替换为当前访问酒馆的主机（含端口），并保留路径与查询参数。
- * @param {string} url 原始图片地址
- * @returns {string} 归一化后的可访问地址
- */
-function resolveMediaUrl(url) {
-  if (!url || typeof url !== "string") return url;
-  // data:/blob: 等本地对象地址直接返回，不做处理
-  if (/^(data|blob):/i.test(url)) return url;
-  const base =
-    (typeof window !== "undefined" &&
-      window.location &&
-      window.location.origin) ||
-    "";
-  if (!base) return url;
-  try {
-    const target = new URL(url, base);
-    const loopback = ["localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]"];
-    if (loopback.includes(target.hostname)) {
-      const current = new URL(base);
-      target.protocol = current.protocol;
-      target.host = current.host; // host 同时包含主机名与端口
-    }
-    return target.href;
-  } catch {
-    // 无法解析时原样返回，交由后续 fetch 抛出明确错误
-    return url;
-  }
-}
-
-/**
- * 校验剪贴板图片写入能力，并针对局域网 HTTP（非安全上下文）给出明确提示。
- * 通过局域网 IP 的 HTTP 访问时 window.isSecureContext 为 false，
- * navigator.clipboard / window.ClipboardItem 通常不可用，图片无法写入剪贴板。
- */
-function assertClipboardWritable() {
-  if (typeof window !== "undefined" && window.isSecureContext === false) {
-    throw new Error(
-      "当前为局域网 HTTP 环境（非安全上下文），浏览器禁止写入剪贴板；请改用 HTTPS 或 localhost 访问酒馆，或改用「下载」按钮",
-    );
-  }
-  if (!navigator.clipboard || !window.ClipboardItem) {
-    throw new Error("当前浏览器不支持剪贴板图片写入");
-  }
-}
-
-/**
  * 从当前消息容器解析图片媒体信息
  * @param {JQuery} imgEl 图片的 jQuery 元素（.mes_img）
  * @returns {{mesid:number, mediaIndex:number, media:Object|null}}
@@ -258,7 +205,7 @@ async function handleDownload(media, imgEl) {
   const settings = getSettings();
   const fileName = media.title || media.name || "";
   try {
-    const res = await fetch(resolveMediaUrl(media.url));
+    const res = await fetch(media.url);
     if (!res.ok) throw new Error(`下载失败 (HTTP ${res.status})`);
     const blob = await res.blob();
 
@@ -282,7 +229,7 @@ async function handleDownload(media, imgEl) {
     if (settings.fallbackOriginal) {
       // 用原生 <a> 标签下载原图（不能用 utils.download，它会将 URL 字符串当文本写入 Blob）
       const a = document.createElement("a");
-      a.href = resolveMediaUrl(media.url);
+      a.href = media.url;
       a.download = fileName || "image";
       document.body.appendChild(a);
       a.click();
@@ -309,8 +256,7 @@ async function handleDownload(media, imgEl) {
 async function handleCopy(media) {
   const settings = getSettings();
   try {
-    assertClipboardWritable();
-    const res = await fetch(resolveMediaUrl(media.url));
+    const res = await fetch(media.url);
     if (!res.ok) throw new Error(`获取图片失败 (HTTP ${res.status})`);
     const blob = await res.blob();
 
@@ -319,6 +265,10 @@ async function handleCopy(media) {
       settings.outputFormat,
       settings.quality,
     );
+
+    if (!navigator.clipboard || !window.ClipboardItem) {
+      throw new Error("当前浏览器不支持剪贴板图片写入");
+    }
 
     // Chromium 剪贴板仅接受 image/png：产物是 webp 则转 png（透明图在 purifyImage 中已是 png）
     const targetBlob =
@@ -535,7 +485,7 @@ function resolveMediaFromImg(imgEl) {
 async function downloadOriginal(media) {
   const fileName = media.title || media.name || "";
   try {
-    const res = await fetch(resolveMediaUrl(media.url));
+    const res = await fetch(media.url);
     if (!res.ok) throw new Error(`下载失败 (HTTP ${res.status})`);
     const blob = await res.blob();
     download(blob, fileName || `image_${Date.now()}`, blob.type);
@@ -552,10 +502,12 @@ async function downloadOriginal(media) {
  */
 async function copyOriginal(media) {
   try {
-    assertClipboardWritable();
-    const res = await fetch(resolveMediaUrl(media.url));
+    const res = await fetch(media.url);
     if (!res.ok) throw new Error(`获取图片失败 (HTTP ${res.status})`);
     const blob = await res.blob();
+    if (!navigator.clipboard || !window.ClipboardItem) {
+      throw new Error("当前浏览器不支持剪贴板图片写入");
+    }
     const targetBlob =
       blob.type === "image/png" ? blob : await convertBlobToPng(blob);
     await writeToClipboard(targetBlob, "image/png");
@@ -578,7 +530,7 @@ async function downloadOriginalFromSrc(imgEl) {
     return;
   }
   try {
-    const res = await fetch(resolveMediaUrl(src));
+    const res = await fetch(src);
     if (!res.ok) throw new Error(`获取图片失败 (HTTP ${res.status})`);
     const blob = await res.blob();
     download(blob, `image_${Date.now()}`, blob.type);
@@ -599,10 +551,12 @@ async function copyOriginalFromSrc(imgEl) {
     return;
   }
   try {
-    assertClipboardWritable();
-    const res = await fetch(resolveMediaUrl(src));
+    const res = await fetch(src);
     if (!res.ok) throw new Error(`获取图片失败 (HTTP ${res.status})`);
     const blob = await res.blob();
+    if (!navigator.clipboard || !window.ClipboardItem) {
+      throw new Error("当前浏览器不支持剪贴板图片写入");
+    }
     const targetBlob =
       blob.type === "image/png" ? blob : await convertBlobToPng(blob);
     await writeToClipboard(targetBlob, "image/png");
@@ -623,7 +577,7 @@ async function downloadRawImageFromSrc(imgEl) {
     return;
   }
   try {
-    const res = await fetch(resolveMediaUrl(src));
+    const res = await fetch(src);
     if (!res.ok) throw new Error(`获取图片失败 (HTTP ${res.status})`);
     const blob = await res.blob();
     const settings = getSettings();
@@ -656,8 +610,7 @@ async function copyRawImageFromSrc(imgEl) {
     return;
   }
   try {
-    assertClipboardWritable();
-    const res = await fetch(resolveMediaUrl(src));
+    const res = await fetch(src);
     if (!res.ok) throw new Error(`获取图片失败 (HTTP ${res.status})`);
     const blob = await res.blob();
     const settings = getSettings();
@@ -666,6 +619,9 @@ async function copyRawImageFromSrc(imgEl) {
       settings.outputFormat,
       settings.quality,
     );
+    if (!navigator.clipboard || !window.ClipboardItem) {
+      throw new Error("当前浏览器不支持剪贴板图片写入");
+    }
     const targetBlob =
       outBlob.type === "image/png" ? outBlob : await convertBlobToPng(outBlob);
     await writeToClipboard(targetBlob, "image/png");
@@ -709,15 +665,11 @@ function onOutsidePress(e) {
 document.addEventListener("mousedown", onOutsidePress, true);
 document.addEventListener("touchstart", onOutsidePress, true);
 // 右键菜单外区域也关闭（避免旧菜单残留）
-document.addEventListener(
-  "contextmenu",
-  function (e) {
-    if (!document.querySelector(`.${MENU_CLASS}`)) return;
-    if (e.target?.closest?.(`.${MENU_CLASS}`)) return;
-    closeContextMenu();
-  },
-  true,
-);
+document.addEventListener("contextmenu", function (e) {
+  if (!document.querySelector(`.${MENU_CLASS}`)) return;
+  if (e.target?.closest?.(`.${MENU_CLASS}`)) return;
+  closeContextMenu();
+}, true);
 
 // 滚动/窗口尺寸变化时关闭（菜单是固定定位，滚动后会错位）
 $(document).on("scroll", closeContextMenu);
@@ -765,8 +717,7 @@ function syncButtonsState() {
   const template = $("#message_image_template");
   if (template.length === 0) return;
   const show = isEnabled();
-  template
-    .find(`.${EXTENSION_PREFIX}-download, .${EXTENSION_PREFIX}-copy`)
+  template.find(`.${EXTENSION_PREFIX}-download, .${EXTENSION_PREFIX}-copy`)
     .toggle(show);
 }
 
